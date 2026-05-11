@@ -2,8 +2,11 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Analizy Kontuzji — VM Manager</title>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
     <style>
         :root {
             --bg: #0f1117;
@@ -12,6 +15,10 @@
             --accent: #ef4444;
             --text: #e2e8f0;
             --muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         body {
@@ -30,7 +37,12 @@
             max-width: 1000px;
         }
 
-        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+        h1 {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 10px;
+            margin-bottom: 25px;
+        }
 
         /* KONTROLKI */
         .controls {
@@ -43,15 +55,6 @@
             gap: 20px;
             align-items: center;
             flex-wrap: wrap;
-        }
-
-        input[type="file"] {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 8px;
-            border-radius: 6px;
-            cursor: pointer;
         }
 
         select {
@@ -85,7 +88,10 @@
             transition: 0.2s;
         }
 
-        th:hover { background: #2a2f45; color: #fff; }
+        th:hover {
+            background: #2a2f45;
+            color: #fff;
+        }
 
         td {
             padding: 12px 15px;
@@ -93,7 +99,9 @@
             font-size: 14px;
         }
 
-        tr:hover { background: rgba(255,255,255,0.02); }
+        tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
 
         /* BADGE POZYCJI */
         .pos-badge {
@@ -110,8 +118,12 @@
             flex-shrink: 0;
         }
 
-        .date-col { font-family: monospace; color: var(--accent); font-weight: bold; }
-        
+        .date-col {
+            font-family: monospace;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -121,21 +133,41 @@
             border-radius: 12px;
             border: 1px solid var(--border);
         }
+
+        .loading {
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        @media (max-width: 700px) {
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 10px;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
+
     <h1>🚑 Szpital Ligowy - Analiza</h1>
 
     <div class="controls">
+
         <div>
-            <label style="display:block; font-size:12px; margin-bottom:5px; color:var(--muted);">1. Wybierz plik CSV:</label>
-            <input type="file" id="csvFile" accept=".csv">
-        </div>
-        
-        <div style="margin-left:auto; display:flex; align-items:center; gap:15px;">
-            <label style="font-size:12px; color:var(--muted);">2. Filtruj pozycję:</label>
+            <label style="font-size:12px; color:var(--muted);">
+                Filtruj pozycję:
+            </label>
+
             <select id="posFilter">
                 <option value="ALL">Wszystkie pozycje</option>
                 <option value="A">Atakujący (A)</option>
@@ -146,122 +178,204 @@
             </select>
         </div>
 
-        <div id="stats" style="font-weight: bold; color: var(--muted); border-left: 1px solid var(--border); padding-left: 20px;"></div>
+        <div id="stats"
+             style="font-weight:bold; color:var(--muted); margin-left:auto;">
+        </div>
+
     </div>
 
     <table id="injuryTable" style="display:none;">
         <thead>
             <tr>
-                <th onclick="sortTable('ID Ligi')" title="Sortuj po lidze">Liga ↕</th>
-                <th onclick="sortTable('Klub')" title="Sortuj po nazwie klubu">Klub ↕</th>
-                <th onclick="sortTable('Zawodnik')" title="Sortuj alfabetycznie zawodników">Zawodnik ↕</th>
-                <th onclick="sortTable('Powrót do gry')" title="Sortuj po dacie wyzdrowienia">Data powrotu ↕</th>
+                <th onclick="sortTable('ID Ligi')">Liga ↕</th>
+                <th onclick="sortTable('Klub')">Klub ↕</th>
+                <th onclick="sortTable('Zawodnik')">Zawodnik ↕</th>
+                <th onclick="sortTable('Powrót do gry')">Data powrotu ↕</th>
             </tr>
         </thead>
+
         <tbody id="tableBody"></tbody>
     </table>
 
-    <div id="noData" class="empty-state">Wgraj plik CSV wygenerowany przez Skaner Kontuzji, aby rozpocząć analizę.<br><br><i>Kliknij w nagłówki tabeli po wczytaniu, aby sortować wyniki!</i></div>
+    <div id="noData" class="empty-state loading">
+        Ładowanie danych z szpital.csv...
+    </div>
+
 </div>
 
 <script>
+
     let rawData = [];
-    const posColors = { 'R': '#4f7cff', 'Ś': '#f59e0b', 'P': '#22c55e', 'A': '#ef4444', 'L': '#cbd5e1' };
 
-    // Obsługa ręcznego wyboru pliku
-    document.getElementById('csvFile').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
+    const posColors = {
+        'R': '#4f7cff',
+        'Ś': '#f59e0b',
+        'P': '#22c55e',
+        'A': '#ef4444',
+        'L': '#cbd5e1'
+    };
 
-        Papa.parse(file, {
+    let sortOrder = 1;
+    let currentSortKey = '';
+
+    // AUTOMATYCZNE WCZYTANIE CSV
+    window.addEventListener('DOMContentLoaded', () => {
+
+        Papa.parse('szpital.csv', {
+
+            download: true,
             header: true,
             skipEmptyLines: true,
+
             complete: function(results) {
+
                 rawData = results.data;
-                // Domyślne posortowanie po dacie powrotu rosnąco
-                rawData.sort((a, b) => (a["Powrót do gry"] || '').localeCompare(b["Powrót do gry"] || ''));
-                
-                // Resetujemy wskaźnik sortowania, żeby kolejne kliknięcie działało prawidłowo
+
+                // Domyślne sortowanie po dacie
+                rawData.sort((a, b) =>
+                    (a["Powrót do gry"] || '')
+                        .localeCompare(b["Powrót do gry"] || '')
+                );
+
                 sortOrder = 1;
                 currentSortKey = 'Powrót do gry';
-                
+
                 renderTable();
+            },
+
+            error: function(err) {
+
+                console.error('Błąd CSV:', err);
+
+                document.getElementById('noData').innerHTML = `
+                    ❌ Nie udało się wczytać pliku <b>szpital.csv</b>
+                    <br><br>
+                    Upewnij się, że:
+                    <br>
+                    • plik istnieje
+                    <br>
+                    • jest w tym samym folderze co index.html
+                    <br>
+                    • Render poprawnie deployował repo
+                `;
             }
         });
     });
 
-    document.getElementById('posFilter').addEventListener('change', renderTable);
+    // FILTR
+    document.getElementById('posFilter')
+        .addEventListener('change', renderTable);
 
+    // RENDER TABELI
     function renderTable() {
+
         const filter = document.getElementById('posFilter').value;
+
         const tbody = document.getElementById('tableBody');
         const table = document.getElementById('injuryTable');
         const noData = document.getElementById('noData');
-        
+
         tbody.innerHTML = '';
-        
+
         const filtered = rawData.filter(row => {
+
             if (filter === 'ALL') return true;
+
             return row.Pozycja === filter;
         });
 
         if (filtered.length > 0) {
+
             table.style.display = 'table';
             noData.style.display = 'none';
-            document.getElementById('stats').innerText = `Pacjentów: ${filtered.length}`;
+
+            document.getElementById('stats').innerText =
+                `Pacjentów: ${filtered.length}`;
 
             filtered.forEach(row => {
+
                 const tr = document.createElement('tr');
-                const color = posColors[row.Pozycja] || '#64748b';
-                const pozycja = row.Pozycja && row.Pozycja !== '?' ? row.Pozycja : '?';
-                const posBadge = pozycja !== '?' 
-                    ? `<span class="pos-badge" style="background:${color}">${pozycja}</span>` 
-                    : `<span class="pos-badge" style="background:transparent; color:var(--muted)">?</span>`;
-                
+
+                const color =
+                    posColors[row.Pozycja] || '#64748b';
+
+                const pozycja =
+                    row.Pozycja && row.Pozycja !== '?'
+                        ? row.Pozycja
+                        : '?';
+
+                const posBadge =
+                    pozycja !== '?'
+                        ? `<span class="pos-badge" style="background:${color}">
+                            ${pozycja}
+                           </span>`
+                        : `<span class="pos-badge"
+                                 style="background:transparent; color:var(--muted)">
+                            ?
+                           </span>`;
+
                 tr.innerHTML = `
-                    <td style="color:var(--muted)">${row["ID Ligi"] || '-'}</td>
-                    <td style="font-weight:bold">${row.Klub || '-'}</td>
+                    <td style="color:var(--muted)">
+                        ${row["ID Ligi"] || '-'}
+                    </td>
+
+                    <td style="font-weight:bold">
+                        ${row.Klub || '-'}
+                    </td>
+
                     <td>
                         <div style="display:flex; align-items:center;">
                             ${posBadge}
                             <b>${row.Zawodnik || '-'}</b>
                         </div>
                     </td>
-                    <td class="date-col">${row["Powrót do gry"] || '-'}</td>
+
+                    <td class="date-col">
+                        ${row["Powrót do gry"] || '-'}
+                    </td>
                 `;
+
                 tbody.appendChild(tr);
             });
+
         } else {
+
             table.style.display = 'none';
             noData.style.display = 'block';
-            noData.innerText = "Brak zawodników spełniających kryteria na liście kontuzjowanych.";
-            document.getElementById('stats').innerText = `Pacjentów: 0`;
+
+            noData.innerHTML =
+                "Brak zawodników spełniających kryteria.";
+
+            document.getElementById('stats').innerText =
+                'Pacjentów: 0';
         }
     }
 
-    // Inteligentne sortowanie tabeli
-    let sortOrder = 1;
-    let currentSortKey = '';
-
+    // SORTOWANIE
     function sortTable(key) {
-        // Jeśli klikamy w tę samą kolumnę, odwracamy kolejność. W przeciwnym razie sortujemy normalnie.
+
         if (currentSortKey === key) {
-            sortOrder *= -1; 
+            sortOrder *= -1;
         } else {
             sortOrder = 1;
             currentSortKey = key;
         }
 
         rawData.sort((a, b) => {
+
             let valA = a[key] || '';
             let valB = b[key] || '';
-            
-            // localeCompare świetnie radzi sobie z formatem dat RRRR-MM-DD HH:MM:SS oraz z liczbami/tekstem
-            return valA.localeCompare(valB, undefined, {numeric: true}) * sortOrder;
+
+            return valA.localeCompare(
+                valB,
+                undefined,
+                { numeric: true }
+            ) * sortOrder;
         });
-        
+
         renderTable();
     }
+
 </script>
 
 </body>
