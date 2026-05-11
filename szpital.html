@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel Analizy Kontuzji — VM Manager</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg2: #181b24;
+            --border: #2a2f45;
+            --accent: #ef4444;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+
+        /* KONTROLKI */
+        .controls {
+            background: var(--bg2);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        input[type="file"] {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        select {
+            background: var(--bg);
+            color: white;
+            border: 1px solid var(--border);
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        /* TABELA */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg2);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        th {
+            background: #1e2130;
+            padding: 15px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            user-select: none;
+            transition: 0.2s;
+        }
+
+        th:hover { background: #2a2f45; color: #fff; }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+
+        tr:hover { background: rgba(255,255,255,0.02); }
+
+        /* BADGE POZYCJI */
+        .pos-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            font-weight: 900;
+            font-size: 11px;
+            color: #000;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        .date-col { font-family: monospace; color: var(--accent); font-weight: bold; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+            font-style: italic;
+            background: var(--bg2);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🚑 Szpital Ligowy - Analiza</h1>
+
+    <div class="controls">
+        <div>
+            <label style="display:block; font-size:12px; margin-bottom:5px; color:var(--muted);">1. Wybierz plik CSV:</label>
+            <input type="file" id="csvFile" accept=".csv">
+        </div>
+        
+        <div style="margin-left:auto; display:flex; align-items:center; gap:15px;">
+            <label style="font-size:12px; color:var(--muted);">2. Filtruj pozycję:</label>
+            <select id="posFilter">
+                <option value="ALL">Wszystkie pozycje</option>
+                <option value="A">Atakujący (A)</option>
+                <option value="P">Przyjmujący (P)</option>
+                <option value="Ś">Środkowy (Ś)</option>
+                <option value="R">Rozgrywający (R)</option>
+                <option value="L">Libero (L)</option>
+            </select>
+        </div>
+
+        <div id="stats" style="font-weight: bold; color: var(--muted); border-left: 1px solid var(--border); padding-left: 20px;"></div>
+    </div>
+
+    <table id="injuryTable" style="display:none;">
+        <thead>
+            <tr>
+                <th onclick="sortTable('ID Ligi')" title="Sortuj po lidze">Liga ↕</th>
+                <th onclick="sortTable('Klub')" title="Sortuj po nazwie klubu">Klub ↕</th>
+                <th onclick="sortTable('Zawodnik')" title="Sortuj alfabetycznie zawodników">Zawodnik ↕</th>
+                <th onclick="sortTable('Powrót do gry')" title="Sortuj po dacie wyzdrowienia">Data powrotu ↕</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <div id="noData" class="empty-state">Wgraj plik CSV wygenerowany przez Skaner Kontuzji, aby rozpocząć analizę.<br><br><i>Kliknij w nagłówki tabeli po wczytaniu, aby sortować wyniki!</i></div>
+</div>
+
+<script>
+    let rawData = [];
+    const posColors = { 'R': '#4f7cff', 'Ś': '#f59e0b', 'P': '#22c55e', 'A': '#ef4444', 'L': '#cbd5e1' };
+
+    // Obsługa ręcznego wyboru pliku
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                rawData = results.data;
+                // Domyślne posortowanie po dacie powrotu rosnąco
+                rawData.sort((a, b) => (a["Powrót do gry"] || '').localeCompare(b["Powrót do gry"] || ''));
+                
+                // Resetujemy wskaźnik sortowania, żeby kolejne kliknięcie działało prawidłowo
+                sortOrder = 1;
+                currentSortKey = 'Powrót do gry';
+                
+                renderTable();
+            }
+        });
+    });
+
+    document.getElementById('posFilter').addEventListener('change', renderTable);
+
+    function renderTable() {
+        const filter = document.getElementById('posFilter').value;
+        const tbody = document.getElementById('tableBody');
+        const table = document.getElementById('injuryTable');
+        const noData = document.getElementById('noData');
+        
+        tbody.innerHTML = '';
+        
+        const filtered = rawData.filter(row => {
+            if (filter === 'ALL') return true;
+            return row.Pozycja === filter;
+        });
+
+        if (filtered.length > 0) {
+            table.style.display = 'table';
+            noData.style.display = 'none';
+            document.getElementById('stats').innerText = `Pacjentów: ${filtered.length}`;
+
+            filtered.forEach(row => {
+                const tr = document.createElement('tr');
+                const color = posColors[row.Pozycja] || '#64748b';
+                const pozycja = row.Pozycja && row.Pozycja !== '?' ? row.Pozycja : '?';
+                const posBadge = pozycja !== '?' 
+                    ? `<span class="pos-badge" style="background:${color}">${pozycja}</span>` 
+                    : `<span class="pos-badge" style="background:transparent; color:var(--muted)">?</span>`;
+                
+                tr.innerHTML = `
+                    <td style="color:var(--muted)">${row["ID Ligi"] || '-'}</td>
+                    <td style="font-weight:bold">${row.Klub || '-'}</td>
+                    <td>
+                        <div style="display:flex; align-items:center;">
+                            ${posBadge}
+                            <b>${row.Zawodnik || '-'}</b>
+                        </div>
+                    </td>
+                    <td class="date-col">${row["Powrót do gry"] || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } else {
+            table.style.display = 'none';
+            noData.style.display = 'block';
+            noData.innerText = "Brak zawodników spełniających kryteria na liście kontuzjowanych.";
+            document.getElementById('stats').innerText = `Pacjentów: 0`;
+        }
+    }
+
+    // Inteligentne sortowanie tabeli
+    let sortOrder = 1;
+    let currentSortKey = '';
+
+    function sortTable(key) {
+        // Jeśli klikamy w tę samą kolumnę, odwracamy kolejność. W przeciwnym razie sortujemy normalnie.
+        if (currentSortKey === key) {
+            sortOrder *= -1; 
+        } else {
+            sortOrder = 1;
+            currentSortKey = key;
+        }
+
+        rawData.sort((a, b) => {
+            let valA = a[key] || '';
+            let valB = b[key] || '';
+            
+            // localeCompare świetnie radzi sobie z formatem dat RRRR-MM-DD HH:MM:SS oraz z liczbami/tekstem
+            return valA.localeCompare(valB, undefined, {numeric: true}) * sortOrder;
+        });
+        
+        renderTable();
+    }
+</script>
+
+</body>
+</html>
